@@ -1,5 +1,10 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS, cross_origin
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+from categories import categories
+from diet_plans import diet_plans
+import random
 import joblib
 
 app = Flask(__name__)
@@ -15,6 +20,46 @@ steps_walking_time_model = joblib.load('linear_regression_walking_time_model.job
 def hello_world():
     return 'Hello from Flask!'
 
+def determine_category(user_input):
+    max_similarity = 0
+    matched_category = None
+    vectorizer = TfidfVectorizer()
+    user_input_vector = vectorizer.fit_transform([user_input])
+    for category, keywords in categories.items():
+        category_keywords = ' '.join(keywords)
+        category_vector = vectorizer.transform([category_keywords])
+        similarity_score = cosine_similarity(user_input_vector, category_vector)[0][0]
+        if similarity_score > max_similarity:
+            max_similarity = similarity_score
+            matched_category = category
+    return matched_category
+
+def get_random_diet_plan(category):
+    return random.choice(diet_plans[category])
+
+@app.route('/predict-diet-plan', methods=['POST'])
+@cross_origin()
+def predict_diet_plan():
+    try:
+        data = request.get_json(force=True)
+        user_prompt = data.get('user_prompt', '')
+        category = determine_category(user_prompt)
+        if category:
+            diet_plan = get_random_diet_plan(category)
+            response = {
+                'status': 'success',
+                'category': category,
+                'diet_plan': {
+                    'breakfast': diet_plan.split('\n')[0],
+                    'lunch': diet_plan.split('\n')[1],
+                    'dinner': diet_plan.split('\n')[2]
+                }
+            }
+        else:
+            response = {'status': 'failure', 'message': "Sorry, I couldn't understand your request"}
+        return jsonify(response)
+    except Exception as e:
+        return jsonify({'status': 'failure', 'error': str(e)})
 
 @app.route('/predict-weight-change', methods=['POST'])
 @cross_origin()
